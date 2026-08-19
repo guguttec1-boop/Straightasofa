@@ -1,4 +1,3 @@
-
 const express = require("express");
 const admin = require("firebase-admin");
 const app = express();
@@ -10,19 +9,30 @@ app.use(express.json({ limit: "10mb" }));
 const PORT = process.env.PORT || 3000;
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const DATABASE_URL = "https://r-second-default-rtdb.firebaseio.com/";
-const WEBHOOK_URL = process.env.WEBHOOK_URL;  // <-- SET THIS on Render
+const WEBHOOK_URL = process.env.WEBHOOK_URL;  // now set!
 
 // ======================================================
-// ENVIRONMENT CHECKS (keep your existing checks)
+// ENVIRONMENT CHECKS
 // ======================================================
 if (!BOT_TOKEN) {
   console.error("ERROR: TELEGRAM_BOT_TOKEN is missing");
   process.exit(1);
 }
-// ... (keep all your existing checks for FIREBASE_PROJECT_ID, etc.)
+if (!process.env.FIREBASE_PROJECT_ID) {
+  console.error("ERROR: FIREBASE_PROJECT_ID is missing");
+  process.exit(1);
+}
+if (!process.env.FIREBASE_CLIENT_EMAIL) {
+  console.error("ERROR: FIREBASE_CLIENT_EMAIL is missing");
+  process.exit(1);
+}
+if (!process.env.FIREBASE_PRIVATE_KEY) {
+  console.error("ERROR: FIREBASE_PRIVATE_KEY is missing");
+  process.exit(1);
+}
 
 // ======================================================
-// FIREBASE INIT (keep your existing init)
+// FIREBASE INIT
 // ======================================================
 admin.initializeApp({
   credential: admin.credential.cert({
@@ -36,7 +46,7 @@ const db = admin.database();
 const POSTS_REF = db.ref("sofa/new");
 
 // ======================================================
-// TELEGRAM API HELPER (keep your existing telegram() function)
+// TELEGRAM API HELPER
 // ======================================================
 async function telegram(method, params = {}) {
   const url = `https://api.telegram.org/bot${BOT_TOKEN}/${method}`;
@@ -46,17 +56,94 @@ async function telegram(method, params = {}) {
     body: JSON.stringify(params)
   });
   const data = await response.json();
-  if (!data.ok) throw new Error(`Telegram API error: ${JSON.stringify(data)}`);
+  if (!data.ok) {
+    throw new Error(`Telegram API error: ${JSON.stringify(data)}`);
+  }
   return data.result;
 }
 
 // ======================================================
-// KEEP YOUR EXISTING: getTelegramFileUrl(), extractMedia()
-// (copy them exactly as you have)
+// GET FILE URL FROM TELEGRAM FILE ID
 // ======================================================
+async function getTelegramFileUrl(fileId) {
+  if (!fileId) return null;
+  try {
+    const file = await telegram("getFile", { file_id: fileId });
+    if (!file.file_path) return null;
+    return `https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`;
+  } catch (error) {
+    console.error("Could not convert file_id to URL:", fileId, error.message);
+    return null;
+  }
+}
 
 // ======================================================
-// NEW: Handle channel post and save to Firebase
+// EXTRACT MEDIA FROM MESSAGE
+// ======================================================
+function extractMedia(message) {
+  const media = [];
+
+  // PHOTO
+  if (message.photo && Array.isArray(message.photo) && message.photo.length > 0) {
+    const largestPhoto = message.photo[message.photo.length - 1];
+    media.push({
+      type: "image",
+      file_id: largestPhoto.file_id,
+      width: largestPhoto.width || null,
+      height: largestPhoto.height || null
+    });
+  }
+
+  // VIDEO
+  if (message.video) {
+    media.push({
+      type: "video",
+      file_id: message.video.file_id,
+      width: message.video.width || null,
+      height: message.video.height || null,
+      duration: message.video.duration || null,
+      file_size: message.video.file_size || null
+    });
+  }
+
+  // ANIMATION / GIF
+  if (message.animation) {
+    media.push({
+      type: "animation",
+      file_id: message.animation.file_id,
+      width: message.animation.width || null,
+      height: message.animation.height || null,
+      duration: message.animation.duration || null
+    });
+  }
+
+  // DOCUMENT
+  if (message.document) {
+    media.push({
+      type: "document",
+      file_id: message.document.file_id,
+      file_name: message.document.file_name || null,
+      mime_type: message.document.mime_type || null,
+      file_size: message.document.file_size || null
+    });
+  }
+
+  // AUDIO
+  if (message.audio) {
+    media.push({
+      type: "audio",
+      file_id: message.audio.file_id,
+      file_name: message.audio.file_name || null,
+      mime_type: message.audio.mime_type || null,
+      duration: message.audio.duration || null
+    });
+  }
+
+  return media;
+}
+
+// ======================================================
+// HANDLE CHANNEL POST – saves to Firebase
 // ======================================================
 async function handleChannelPost(message) {
   const text = message.text || message.caption || '';
@@ -86,7 +173,7 @@ async function handleChannelPost(message) {
 }
 
 // ======================================================
-// NEW: Webhook endpoint – Telegram will POST to this
+// WEBHOOK ENDPOINT
 // ======================================================
 app.post('/webhook', async (req, res) => {
   try {
@@ -94,7 +181,7 @@ app.post('/webhook', async (req, res) => {
     if (update.channel_post) {
       await handleChannelPost(update.channel_post);
     }
-    res.sendStatus(200);  // Always acknowledge Telegram
+    res.sendStatus(200);
   } catch (error) {
     console.error('Webhook error:', error);
     res.sendStatus(500);
@@ -102,7 +189,7 @@ app.post('/webhook', async (req, res) => {
 });
 
 // ======================================================
-// NEW: Start server AND set webhook
+// START SERVER AND SET WEBHOOK
 // ======================================================
 app.listen(PORT, async () => {
   console.log(`Server listening on port ${PORT}`);
